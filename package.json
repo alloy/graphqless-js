@@ -1,0 +1,19 @@
+{
+  "name": "graphqless",
+  "version": "0.0.1",
+  "description": "Statically compiled resolvers for entire queries based on a graphql-js schema.",
+  "main": "dist/index.js",
+  "repository": "https://github.com/alloy/graphqless.git",
+  "author": "Eloy Durán <eloy.de.enige@gmail.com>",
+  "license": "MIT",
+  "peerDependencies": {
+    "graphql": "^15.3.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^26.0.10",
+    "graphql": "^15.3.0",
+    "jest": "^26.4.0",
+    "ts-jest": "^26.2.0",
+    "typescript": "^3.9.7"
+  }
+}
