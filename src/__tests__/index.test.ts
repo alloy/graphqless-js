@@ -1,4 +1,4 @@
-import { helloWorld } from "../index";
+import { compile } from "../index";
 
 import {
   GraphQLSchema,
@@ -6,6 +6,7 @@ import {
   GraphQLString,
   graphql,
 } from "graphql";
+import dedent from "dedent";
 
 const schema = new GraphQLSchema({
   query: new GraphQLObjectType({
@@ -21,17 +22,30 @@ const schema = new GraphQLSchema({
   }),
 });
 
-describe(helloWorld, () => {
-  it("works", async () => {
-    const { data } = await graphql({
-      schema,
-      source: `
-        {
-          rootField
-        }
-      `,
-    });
+async function compileAndExecute(source: string) {
+  const expected = await graphql({ schema, source });
+  const src = compile(source);
+  const compiledFn = eval(src);
+  expect(compiledFn(schema)).toEqual(expected);
+  return src;
+}
 
-    expect(data!.rootField).toBe("hello world");
+describe(compile, () => {
+  it("compiles", async () => {
+    const src = await compileAndExecute(`
+      query SomeQuery {
+        rootField
+      }
+    `);
+
+    expect(dedent(src)).toEqual(dedent`
+      (function SomeQuery(schema) {
+        return {
+          data: {
+            rootField: schema.getType("Query").toConfig().fields.rootField.resolve()
+          }
+        };
+      })
+    `);
   });
 });

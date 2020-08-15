@@ -10,7 +10,9 @@
     "graphql": "^15.3.0"
   },
   "devDependencies": {
+    "@types/dedent": "^0.7.0",
     "@types/jest": "^26.0.10",
+    "dedent": "^0.7.0",
     "graphql": "^15.3.0",
     "jest": "^26.4.0",
     "ts-jest": "^26.2.0",
