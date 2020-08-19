@@ -10,6 +10,7 @@
     "graphql": "^15.3.0"
   },
   "devDependencies": {
+    "@babel/generator": "^7.11.0",
     "@types/dedent": "^0.7.0",
     "@types/jest": "^26.0.10",
     "dedent": "^0.7.0",
@@ -17,5 +18,8 @@
     "jest": "^26.4.0",
     "ts-jest": "^26.2.0",
     "typescript": "^3.9.7"
+  },
+  "dependencies": {
+    "@babel/types": "^7.11.0"
   }
 }

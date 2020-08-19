@@ -6,7 +6,9 @@ import {
   GraphQLString,
   graphql,
 } from "graphql";
+
 import dedent from "dedent";
+import generate from "@babel/generator";
 
 const schema = new GraphQLSchema({
   query: new GraphQLObjectType({
@@ -24,7 +26,8 @@ const schema = new GraphQLSchema({
 
 async function compileAndExecute(source: string) {
   const expected = await graphql({ schema, source });
-  const src = compile(source);
+  const ast = compile(source);
+  const src = generate(ast).code;
   const compiledFn = eval(src);
   expect(compiledFn(schema)).toEqual(expected);
   return src;
@@ -40,12 +43,12 @@ describe(compile, () => {
 
     expect(dedent(src)).toEqual(dedent`
       (function SomeQuery(schema) {
-        return {
-          data: {
-            rootField: schema.getType("Query").toConfig().fields.rootField.resolve()
-          }
-        };
-      })
+      return {
+        data: {
+          rootField: schema.getType("Query").toConfig().fields.rootField.resolve()
+        }
+      };
+      });
     `);
   });
 });
