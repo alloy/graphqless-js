@@ -26,7 +26,7 @@ const schema = new GraphQLSchema({
 
 async function compileAndExecute(source: string) {
   const expected = await graphql({ schema, source });
-  const ast = compile(source);
+  const ast = compile(source, schema);
   const src = generate(ast).code;
   const compiledFn = eval(src);
   expect(compiledFn(schema)).toEqual(expected);

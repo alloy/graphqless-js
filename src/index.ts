@@ -5,47 +5,74 @@ function parse(source: string): g.DocumentNode {
   return g.parse(source);
 }
 
+function transformFieldSelection(
+  field: g.FieldNode,
+  parentType: g.GraphQLCompositeType
+): t.CallExpression {
+  return t.callExpression(
+    t.memberExpression(
+      t.memberExpression(
+        t.memberExpression(
+          t.callExpression(
+            t.memberExpression(
+              t.callExpression(
+                t.memberExpression(
+                  t.identifier("schema"),
+                  t.identifier("getType")
+                ),
+                [t.stringLiteral(parentType.name)]
+              ),
+              t.identifier("toConfig")
+            ),
+            []
+          ),
+          t.identifier("fields")
+        ),
+        t.identifier(field.name.value)
+      ),
+      t.identifier("resolve")
+    ),
+    []
+  );
+}
+
+/**
+ * TODO:
+ * - validate operation name
+ */
 function transformOperation(
-  source: g.OperationDefinitionNode
+  operation: g.OperationDefinitionNode,
+  schema: g.GraphQLSchema
 ): t.FunctionExpression {
+  const fieldSelections: Array<{
+    node: g.FieldNode;
+    parentType: g.GraphQLCompositeType;
+  }> = [];
+  const typeInfo = new g.TypeInfo(schema);
+  g.visit(
+    operation,
+    g.visitWithTypeInfo(typeInfo, {
+      Field(node) {
+        fieldSelections.push({ node, parentType: typeInfo.getParentType()! });
+      },
+    })
+  );
   return t.functionExpression(
-    t.identifier("SomeQuery"),
+    t.identifier(operation.name!.value),
     [t.identifier("schema")],
     t.blockStatement([
       t.returnStatement(
         t.objectExpression([
           t.objectProperty(
             t.identifier("data"),
-            t.objectExpression([
-              t.objectProperty(
-                t.identifier("rootField"),
-                t.callExpression(
-                  t.memberExpression(
-                    t.memberExpression(
-                      t.memberExpression(
-                        t.callExpression(
-                          t.memberExpression(
-                            t.callExpression(
-                              t.memberExpression(
-                                t.identifier("schema"),
-                                t.identifier("getType")
-                              ),
-                              [t.stringLiteral("Query")]
-                            ),
-                            t.identifier("toConfig")
-                          ),
-                          []
-                        ),
-                        t.identifier("fields")
-                      ),
-                      t.identifier("rootField")
-                    ),
-                    t.identifier("resolve")
-                  ),
-                  []
+            t.objectExpression(
+              fieldSelections.map(({ node, parentType }) =>
+                t.objectProperty(
+                  t.identifier(node.name.value),
+                  transformFieldSelection(node, parentType)
                 )
-              ),
-            ])
+              )
+            )
           ),
         ])
       ),
@@ -53,19 +80,25 @@ function transformOperation(
   );
 }
 
-function transformOperations(source: g.DocumentNode): t.FunctionExpression[] {
-  const functionExpressions: t.FunctionExpression[] = [];
+function transformOperations(
+  source: g.DocumentNode,
+  schema: g.GraphQLSchema
+): t.FunctionExpression[] {
+  const operationNodes: g.OperationDefinitionNode[] = [];
   g.visit(source, {
     OperationDefinition(node) {
-      const functionExpression = transformOperation(node);
-      functionExpressions.push(functionExpression);
+      if (node.operation !== "query") {
+        throw new Error("TODO: Currently only query operations are supported");
+      }
+      operationNodes.push(node);
+      return false;
     },
   });
-  return functionExpressions;
+  return operationNodes.map((node) => transformOperation(node, schema));
 }
 
-export function compile(source: string): t.Node {
-  const functionExpressions = transformOperations(parse(source));
+export function compile(source: string, schema: g.GraphQLSchema): t.Node {
+  const functionExpressions = transformOperations(parse(source), schema);
   const body = functionExpressions.map((fn) => t.expressionStatement(fn));
   return t.program(body);
 }
