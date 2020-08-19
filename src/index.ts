@@ -1,61 +1,71 @@
 import * as t from "@babel/types";
+import * as g from "graphql";
 
-export function compile(source: string): t.Node {
-  return t.program([
-    t.expressionStatement(
-      t.functionExpression(
-        t.identifier("SomeQuery"),
-        [t.identifier("schema")],
-        t.blockStatement([
-          t.returnStatement(
+function parse(source: string): g.DocumentNode {
+  return g.parse(source);
+}
+
+function transformOperation(
+  source: g.OperationDefinitionNode
+): t.FunctionExpression {
+  return t.functionExpression(
+    t.identifier("SomeQuery"),
+    [t.identifier("schema")],
+    t.blockStatement([
+      t.returnStatement(
+        t.objectExpression([
+          t.objectProperty(
+            t.identifier("data"),
             t.objectExpression([
               t.objectProperty(
-                t.identifier("data"),
-                t.objectExpression([
-                  t.objectProperty(
-                    t.identifier("rootField"),
-                    t.callExpression(
+                t.identifier("rootField"),
+                t.callExpression(
+                  t.memberExpression(
+                    t.memberExpression(
                       t.memberExpression(
-                        t.memberExpression(
+                        t.callExpression(
                           t.memberExpression(
                             t.callExpression(
                               t.memberExpression(
-                                t.callExpression(
-                                  t.memberExpression(
-                                    t.identifier("schema"),
-                                    t.identifier("getType")
-                                  ),
-                                  [t.stringLiteral("Query")]
-                                ),
-                                t.identifier("toConfig")
+                                t.identifier("schema"),
+                                t.identifier("getType")
                               ),
-                              []
+                              [t.stringLiteral("Query")]
                             ),
-                            t.identifier("fields")
+                            t.identifier("toConfig")
                           ),
-                          t.identifier("rootField")
+                          []
                         ),
-                        t.identifier("resolve")
+                        t.identifier("fields")
                       ),
-                      []
-                    )
+                      t.identifier("rootField")
+                    ),
+                    t.identifier("resolve")
                   ),
-                ])
+                  []
+                )
               ),
             ])
           ),
         ])
-      )
-    ),
-  ]);
+      ),
+    ])
+  );
+}
 
-  //   return `
-  //   (function SomeQuery(schema) {
-  //     return {
-  //       data: {
-  //         rootField: schema.getType("Query").toConfig().fields.rootField.resolve()
-  //       }
-  //     };
-  //   })
-  // `;
+function transformOperations(source: g.DocumentNode): t.FunctionExpression[] {
+  const functionExpressions: t.FunctionExpression[] = [];
+  g.visit(source, {
+    OperationDefinition(node) {
+      const functionExpression = transformOperation(node);
+      functionExpressions.push(functionExpression);
+    },
+  });
+  return functionExpressions;
+}
+
+export function compile(source: string): t.Node {
+  const functionExpressions = transformOperations(parse(source));
+  const body = functionExpressions.map((fn) => t.expressionStatement(fn));
+  return t.program(body);
 }
