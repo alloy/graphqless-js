@@ -14,7 +14,13 @@ const schema = new GraphQLSchema({
   query: new GraphQLObjectType({
     name: "Query",
     fields: () => ({
-      rootField: {
+      aScalarRootField: {
+        type: GraphQLString,
+        resolve: (source, args, context, info) => {
+          return "hello world";
+        },
+      },
+      anotherScalarRootField: {
         type: GraphQLString,
         resolve: (source, args, context, info) => {
           return "hello world";
@@ -37,7 +43,8 @@ describe(compile, () => {
   it("compiles", async () => {
     const src = await compileAndExecute(`
       query SomeQuery {
-        rootField
+        aScalarRootField
+        anotherScalarRootField
       }
     `);
 
@@ -45,7 +52,8 @@ describe(compile, () => {
       (function SomeQuery(schema) {
       return {
         data: {
-          rootField: schema.getType("Query").toConfig().fields.rootField.resolve()
+          aScalarRootField: schema.getType("Query").toConfig().fields.aScalarRootField.resolve(),
+          anotherScalarRootField: schema.getType("Query").toConfig().fields.anotherScalarRootField.resolve()
         }
       };
       });
