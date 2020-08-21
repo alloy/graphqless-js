@@ -1,100 +1,144 @@
 import * as t from "@babel/types";
+import template from "@babel/template";
 import * as g from "graphql";
+import invariant from "invariant";
 
 function parse(source: string): g.DocumentNode {
   return g.parse(source);
 }
 
-function transformFieldSelection(
-  field: g.FieldNode,
-  parentType: g.GraphQLCompositeType
-): t.CallExpression {
-  return t.callExpression(
-    t.memberExpression(
-      t.memberExpression(
-        t.memberExpression(
-          t.callExpression(
-            t.memberExpression(
-              t.callExpression(
-                t.memberExpression(
-                  t.identifier("schema"),
-                  t.identifier("getType")
-                ),
-                [t.stringLiteral(parentType.name)]
-              ),
-              t.identifier("toConfig")
-            ),
-            []
-          ),
-          t.identifier("fields")
-        ),
-        t.identifier(field.name.value)
-      ),
-      t.identifier("resolve")
-    ),
-    []
-  );
-}
+const invokeFieldResolverBuilder = template.expression(`
+  schema.getType(%%typeName%%).toConfig().fields.%%fieldName%%.resolve(%%source%%)
+`);
 
-/**
- * TODO:
- * - validate operation name
- */
-function transformOperation(
-  operation: g.OperationDefinitionNode,
-  schema: g.GraphQLSchema
-): t.FunctionExpression {
-  const fieldSelections: Array<{
-    node: g.FieldNode;
-    parentType: g.GraphQLCompositeType;
-  }> = [];
-  const typeInfo = new g.TypeInfo(schema);
-  g.visit(
-    operation,
-    g.visitWithTypeInfo(typeInfo, {
-      Field(node) {
-        fieldSelections.push({ node, parentType: typeInfo.getParentType()! });
-      },
-    })
-  );
-  return t.functionExpression(
-    t.identifier(operation.name!.value),
-    [t.identifier("schema")],
-    t.blockStatement([
-      t.returnStatement(
-        t.objectExpression([
-          t.objectProperty(
-            t.identifier("data"),
-            t.objectExpression(
-              fieldSelections.map(({ node, parentType }) =>
-                t.objectProperty(
-                  t.identifier(node.name.value),
-                  transformFieldSelection(node, parentType)
-                )
-              )
-            )
-          ),
-        ])
-      ),
-    ])
-  );
-}
+const invokeObjectTypeFieldResolverBuilder = template.expression(`
+  function () {
+    const %%source%% = %%invokeObjectFieldResolver%%;
+    if (%%source%%) {
+      return Object.assign(
+        {},
+        %%source%%,
+        %%selectionSet%%,
+      );
+    }
+  }()
+`);
 
 function transformOperations(
   source: g.DocumentNode,
   schema: g.GraphQLSchema
 ): t.FunctionExpression[] {
-  const operationNodes: g.OperationDefinitionNode[] = [];
-  g.visit(source, {
-    OperationDefinition(node) {
-      if (node.operation !== "query") {
-        throw new Error("TODO: Currently only query operations are supported");
-      }
-      operationNodes.push(node);
-      return false;
-    },
-  });
-  return operationNodes.map((node) => transformOperation(node, schema));
+  const operationFunctions: t.FunctionExpression[] = [];
+
+  const typeInfo = new g.TypeInfo(schema);
+
+  const sourceStack: t.Identifier[] = [];
+  const selectionSetStack: t.ObjectProperty[][] = [];
+  let currentSelectionSet: t.ObjectExpression | null = null;
+
+  g.visit(
+    source,
+    g.visitWithTypeInfo(typeInfo, {
+      OperationDefinition: {
+        enter(operationNode) {
+          invariant(
+            operationNode.operation === "query",
+            "Currently only query operations are supported"
+          );
+          sourceStack.push(t.identifier("rootSource"));
+        },
+        leave(operationNode) {
+          invariant(
+            selectionSetStack.length === 0,
+            "Expected selectionSetStack to be empty by end of operation"
+          );
+          invariant(
+            currentSelectionSet,
+            "Expected there to be a current selection for root object type"
+          );
+          // TODO: Make this a graphql-js validation
+          invariant(
+            operationNode.name,
+            "Expected operation to have a name to be used as name of the compiled function"
+          );
+          operationFunctions.push(
+            t.functionExpression(
+              t.identifier(operationNode.name.value),
+              [t.identifier("schema"), t.identifier("rootSource")],
+              t.blockStatement([
+                t.returnStatement(
+                  t.objectExpression([
+                    t.objectProperty(t.identifier("data"), currentSelectionSet),
+                  ])
+                ),
+              ])
+            )
+          );
+          currentSelectionSet = null;
+        },
+      },
+      Field: {
+        enter(fieldNode) {
+          const type = typeInfo.getType();
+          invariant(type, "Expected field to have a type");
+          // TODO: Check what this _is_ instead
+          if (!g.isScalarType(type)) {
+            sourceStack.push(t.identifier(`result_${sourceStack.length}`));
+          }
+        },
+        leave(fieldNode) {
+          let expression: t.Expression;
+
+          const type = typeInfo.getType();
+          invariant(type, "Expected field to have a type");
+          const parentType = typeInfo.getParentType();
+          invariant(parentType, "Expected field to have a parent type");
+          const source = sourceStack[sourceStack.length - 1];
+          invariant(source, "Expected a source identifier on the stack");
+
+          if (g.isScalarType(type)) {
+            expression = invokeFieldResolverBuilder({
+              source,
+              typeName: t.stringLiteral(parentType.name),
+              fieldName: t.identifier(fieldNode.name.value),
+            });
+          } else {
+            invariant(g.isObjectType(type), "Expected a object type");
+            invariant(
+              currentSelectionSet,
+              "Expected there to be a current selection for object type"
+            );
+            sourceStack.pop();
+            expression = invokeObjectTypeFieldResolverBuilder({
+              source,
+              invokeObjectFieldResolver: invokeFieldResolverBuilder({
+                source: sourceStack[sourceStack.length - 1],
+                typeName: t.stringLiteral(parentType.name),
+                fieldName: t.identifier(fieldNode.name.value),
+              }),
+              selectionSet: currentSelectionSet,
+            });
+            currentSelectionSet = null;
+          }
+          selectionSetStack[selectionSetStack.length - 1].push(
+            t.objectProperty(t.identifier(fieldNode.name.value), expression)
+          );
+        },
+      },
+      SelectionSet: {
+        enter() {
+          selectionSetStack.push([]);
+        },
+        leave() {
+          const properties = selectionSetStack.pop();
+          invariant(properties, "Expected object properties");
+          currentSelectionSet = t.objectExpression(properties);
+        },
+      },
+    })
+  );
+
+  return operationFunctions;
 }
 
 export function compile(source: string, schema: g.GraphQLSchema): t.Node {
