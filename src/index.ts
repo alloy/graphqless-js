@@ -127,13 +127,29 @@ function transformOperations(
               "Expected there to be a current selection for object type"
             );
             sourceStack.pop();
-            expression = invokeObjectTypeFieldResolverBuilder({
-              source,
-              invokeObjectFieldResolver: invokeFieldResolverBuilder({
+            let invokeObjectFieldResolver: t.Expression;
+            invariant(
+              g.isObjectType(parentType),
+              "Expected parentType to be an object type"
+            );
+            const fieldConfig = parentType.toConfig().fields[
+              fieldNode.name.value
+            ];
+            if (fieldConfig.resolve) {
+              invokeObjectFieldResolver = invokeFieldResolverBuilder({
                 source: sourceStack[sourceStack.length - 1],
                 typeName: t.stringLiteral(parentType.name),
                 fieldName: t.identifier(fieldNode.name.value),
-              }),
+              });
+            } else {
+              invokeObjectFieldResolver = invokeDefaultFieldResolverBuilder({
+                source: sourceStack[sourceStack.length - 1],
+                fieldName: t.stringLiteral(fieldNode.name.value),
+              });
+            }
+            expression = invokeObjectTypeFieldResolverBuilder({
+              source,
+              invokeObjectFieldResolver,
               selectionSet: currentSelectionSet,
             });
             currentSelectionSet = null;

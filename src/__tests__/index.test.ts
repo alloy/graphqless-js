@@ -22,7 +22,7 @@ const schema = new GraphQLSchema({
       },
       aScalarFieldWithoutResolver: {
         type: GraphQLString,
-        },
+      },
       anObjectRootField: {
         type: new GraphQLObjectType({
           name: "AnObjectRootFieldType",
@@ -33,9 +33,19 @@ const schema = new GraphQLSchema({
                 return "hello world";
               },
             },
+            aNestedObjectFieldWithoutResolver: {
+              type: new GraphQLObjectType({
+                name: "ANestedObjectFieldType",
+                fields: () => ({
+                  aScalarFieldWithoutResolver: {
+                    type: GraphQLString,
+                  },
+                }),
+              }),
+            },
           }),
         }),
-        resolve: (source, args, context, info) => ({}),
+        resolve: (source, args, context, info) => source.anObjectRootField,
       },
     }),
   }),
@@ -50,6 +60,10 @@ async function compileAndExecute(source: string, rootValue?: object) {
   return src;
 }
 
+/**
+ * TODO:
+ * - Test field without resolver and no provided data, should be null
+ */
 describe(compile, () => {
   it("compiles root scalar fields", async () => {
     const src = await compileAndExecute(
@@ -75,13 +89,25 @@ describe(compile, () => {
   });
 
   it("compiles nested fields", async () => {
-    const src = await compileAndExecute(`
+    const src = await compileAndExecute(
+      `
       query SomeQuery {
         anObjectRootField {
           aNestedScalarField
+          aNestedObjectFieldWithoutResolver {
+            aScalarFieldWithoutResolver
+          }
         }
       }
-    `);
+    `,
+      {
+        anObjectRootField: {
+          aNestedObjectFieldWithoutResolver: {
+            aScalarFieldWithoutResolver: "hello world",
+          },
+        },
+      }
+    );
 
     expect(dedent(src)).toEqual(dedent`
       (function SomeQuery(schema, rootValue) {
@@ -92,7 +118,16 @@ describe(compile, () => {
 
             if (result_1) {
               return Object.assign({}, result_1, {
-                aNestedScalarField: schema.getType("AnObjectRootFieldType").toConfig().fields.aNestedScalarField.resolve(result_1)
+                aNestedScalarField: schema.getType("AnObjectRootFieldType").toConfig().fields.aNestedScalarField.resolve(result_1),
+                aNestedObjectFieldWithoutResolver: function () {
+                  const result_2 = result_1["aNestedObjectFieldWithoutResolver"];
+
+                  if (result_2) {
+                    return Object.assign({}, result_2, {
+                      aScalarFieldWithoutResolver: result_2["aScalarFieldWithoutResolver"]
+                    });
+                  }
+                }()
               });
             }
           }()
