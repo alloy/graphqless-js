@@ -7,6 +7,10 @@ function parse(source: string): g.DocumentNode {
   return g.parse(source);
 }
 
+const invokeDefaultFieldResolverBuilder = template.expression(`
+  %%source%%[%%fieldName%%]
+`);
+
 const invokeFieldResolverBuilder = template.expression(`
   schema.getType(%%typeName%%).toConfig().fields.%%fieldName%%.resolve(%%source%%)
 `);
@@ -45,7 +49,7 @@ function transformOperations(
             operationNode.operation === "query",
             "Currently only query operations are supported"
           );
-          sourceStack.push(t.identifier("rootSource"));
+          sourceStack.push(t.identifier("rootValue"));
         },
         leave(operationNode) {
           invariant(
@@ -64,7 +68,7 @@ function transformOperations(
           operationFunctions.push(
             t.functionExpression(
               t.identifier(operationNode.name.value),
-              [t.identifier("schema"), t.identifier("rootSource")],
+              [t.identifier("schema"), t.identifier("rootValue")],
               t.blockStatement([
                 t.returnStatement(
                   t.objectExpression([
@@ -97,11 +101,25 @@ function transformOperations(
           invariant(source, "Expected a source identifier on the stack");
 
           if (g.isScalarType(type)) {
-            expression = invokeFieldResolverBuilder({
-              source,
-              typeName: t.stringLiteral(parentType.name),
-              fieldName: t.identifier(fieldNode.name.value),
-            });
+            invariant(
+              g.isObjectType(parentType),
+              "Expected parentType to be an object type"
+            );
+            const fieldConfig = parentType.toConfig().fields[
+              fieldNode.name.value
+            ];
+            if (fieldConfig.resolve) {
+              expression = invokeFieldResolverBuilder({
+                source,
+                typeName: t.stringLiteral(parentType.name),
+                fieldName: t.identifier(fieldNode.name.value),
+              });
+            } else {
+              expression = invokeDefaultFieldResolverBuilder({
+                source,
+                fieldName: t.stringLiteral(fieldNode.name.value),
+              });
+            }
           } else {
             invariant(g.isObjectType(type), "Expected a object type");
             invariant(

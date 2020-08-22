@@ -20,12 +20,9 @@ const schema = new GraphQLSchema({
           return "hello world";
         },
       },
-      anotherScalarRootField: {
+      aScalarFieldWithoutResolver: {
         type: GraphQLString,
-        resolve: (source, args, context, info) => {
-          return "hello world";
         },
-      },
       anObjectRootField: {
         type: new GraphQLObjectType({
           name: "AnObjectRootFieldType",
@@ -44,30 +41,33 @@ const schema = new GraphQLSchema({
   }),
 });
 
-async function compileAndExecute(source: string) {
-  const expected = await graphql({ schema, source });
+async function compileAndExecute(source: string, rootValue?: object) {
+  const expected = await graphql({ schema, source, rootValue });
   const ast = compile(source, schema);
   const src = generate(ast).code;
   const compiledFn = eval(src);
-  expect(compiledFn(schema)).toEqual(expected);
+  expect(compiledFn(schema, rootValue)).toEqual(expected);
   return src;
 }
 
 describe(compile, () => {
   it("compiles root scalar fields", async () => {
-    const src = await compileAndExecute(`
+    const src = await compileAndExecute(
+      `
       query SomeQuery {
         aScalarRootField
-        anotherScalarRootField
+        aScalarFieldWithoutResolver
       }
-    `);
+    `,
+      { aScalarFieldWithoutResolver: "hello world" }
+    );
 
     expect(dedent(src)).toEqual(dedent`
-      (function SomeQuery(schema, rootSource) {
+      (function SomeQuery(schema, rootValue) {
       return {
         data: {
-          aScalarRootField: schema.getType("Query").toConfig().fields.aScalarRootField.resolve(rootSource),
-          anotherScalarRootField: schema.getType("Query").toConfig().fields.anotherScalarRootField.resolve(rootSource)
+          aScalarRootField: schema.getType("Query").toConfig().fields.aScalarRootField.resolve(rootValue),
+          aScalarFieldWithoutResolver: rootValue["aScalarFieldWithoutResolver"]
         }
       };
       });
@@ -84,11 +84,11 @@ describe(compile, () => {
     `);
 
     expect(dedent(src)).toEqual(dedent`
-      (function SomeQuery(schema, rootSource) {
+      (function SomeQuery(schema, rootValue) {
       return {
         data: {
           anObjectRootField: function () {
-            const result_1 = schema.getType("Query").toConfig().fields.anObjectRootField.resolve(rootSource);
+            const result_1 = schema.getType("Query").toConfig().fields.anObjectRootField.resolve(rootValue);
 
             if (result_1) {
               return Object.assign({}, result_1, {
