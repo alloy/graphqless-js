@@ -7,6 +7,14 @@ function parse(source: string): g.DocumentNode {
   return g.parse(source);
 }
 
+const operationFunctionBuilder = template.expression(`
+  function %%operationName%%(schema, rootValue) {
+    return {
+      data: %%selectionSet%%
+    };
+  }
+`);
+
 const invokeDefaultFieldResolverBuilder = template.expression(`
   %%source%%[%%fieldName%%]
 `);
@@ -65,18 +73,16 @@ function transformOperations(
             operationNode.name,
             "Expected operation to have a name to be used as name of the compiled function"
           );
+          invariant(
+            sourceStack.length === 1,
+            "Expected sourceStack to be empty by end of operation"
+          );
+          const source = sourceStack.pop()!;
           operationFunctions.push(
-            t.functionExpression(
-              t.identifier(operationNode.name.value),
-              [t.identifier("schema"), t.identifier("rootValue")],
-              t.blockStatement([
-                t.returnStatement(
-                  t.objectExpression([
-                    t.objectProperty(t.identifier("data"), currentSelectionSet),
-                  ])
-                ),
-              ])
-            )
+            operationFunctionBuilder({
+              operationName: operationNode.name.value,
+              selectionSet: currentSelectionSet,
+            }) as t.FunctionExpression
           );
           currentSelectionSet = null;
         },
@@ -85,7 +91,7 @@ function transformOperations(
         enter(fieldNode) {
           const type = typeInfo.getType();
           invariant(type, "Expected field to have a type");
-          // TODO: Check what this _is_ instead
+          // TODO: Check what this _is_ instead of what it isn't
           if (!g.isScalarType(type)) {
             sourceStack.push(t.identifier(`result_${sourceStack.length}`));
           }

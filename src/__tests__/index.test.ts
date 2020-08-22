@@ -45,7 +45,8 @@ const schema = new GraphQLSchema({
             },
           }),
         }),
-        resolve: (source, args, context, info) => source.anObjectRootField,
+        resolve: (source, args, context, info) =>
+          source ? source.anObjectRootField : {},
       },
     }),
   }),
@@ -65,35 +66,86 @@ async function compileAndExecute(source: string, rootValue?: object) {
  * - Test field without resolver and no provided data, should be null
  */
 describe(compile, () => {
-  it("compiles root scalar fields", async () => {
-    const src = await compileAndExecute(
-      `
-      query SomeQuery {
-        aScalarRootField
-        aScalarFieldWithoutResolver
-      }
-    `,
-      { aScalarFieldWithoutResolver: "hello world" }
-    );
-
-    expect(dedent(src)).toEqual(dedent`
-      (function SomeQuery(schema, rootValue) {
-      return {
-        data: {
-          aScalarRootField: schema.getType("Query").toConfig().fields.aScalarRootField.resolve(rootValue),
-          aScalarFieldWithoutResolver: rootValue["aScalarFieldWithoutResolver"]
+  describe("concerning scalar fields", () => {
+    it("compiles a scalar field with resolver", async () => {
+      const src = await compileAndExecute(
+        `
+        query SomeQuery {
+          aScalarRootField
         }
-      };
-      });
-    `);
+      `
+      );
+
+      expect(dedent(src)).toEqual(dedent`
+        (function SomeQuery(schema, rootValue) {
+        return {
+          data: {
+            aScalarRootField: schema.getType("Query").toConfig().fields.aScalarRootField.resolve(rootValue)
+          }
+        };
+        });
+      `);
+    });
+
+    it("compiles a scalar field with default resolver", async () => {
+      const src = await compileAndExecute(
+        `
+        query SomeQuery {
+          aScalarFieldWithoutResolver
+        }
+      `,
+        { aScalarFieldWithoutResolver: "hello world" }
+      );
+
+      expect(dedent(src)).toEqual(dedent`
+        (function SomeQuery(schema, rootValue) {
+        return {
+          data: {
+            aScalarFieldWithoutResolver: rootValue["aScalarFieldWithoutResolver"]
+          }
+        };
+        });
+      `);
+    });
   });
 
-  it("compiles nested fields", async () => {
+  describe("concerning object fields", () => {
+    it("compiles a object field with resolver", async () => {
+      const src = await compileAndExecute(
+        `
+        query SomeQuery {
+          anObjectRootField {
+            aNestedScalarField
+          }
+        }
+      `
+      );
+
+      expect(dedent(src)).toEqual(dedent`
+        (function SomeQuery(schema, rootValue) {
+        return {
+          data: {
+            anObjectRootField: function () {
+              const result_1 = schema.getType("Query").toConfig().fields.anObjectRootField.resolve(rootValue);
+  
+              if (result_1) {
+                return Object.assign({}, result_1, {
+                  aNestedScalarField: schema.getType("AnObjectRootFieldType").toConfig().fields.aNestedScalarField.resolve(result_1)
+                });
+              }
+            }()
+          }
+        };
+        });
+      `);
+    });
+  });
+
+  it("compiles a object field with default resolver", async () => {
     const src = await compileAndExecute(
       `
       query SomeQuery {
         anObjectRootField {
-          aNestedScalarField
           aNestedObjectFieldWithoutResolver {
             aScalarFieldWithoutResolver
           }
@@ -118,7 +170,6 @@ describe(compile, () => {
 
             if (result_1) {
               return Object.assign({}, result_1, {
-                aNestedScalarField: schema.getType("AnObjectRootFieldType").toConfig().fields.aNestedScalarField.resolve(result_1),
                 aNestedObjectFieldWithoutResolver: function () {
                   const result_2 = result_1["aNestedObjectFieldWithoutResolver"];
 
