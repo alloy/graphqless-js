@@ -3,6 +3,11 @@ import template from "@babel/template";
 import * as g from "graphql";
 import invariant from "invariant";
 
+export type CompiledQueryFunction = (
+  schema: g.GraphQLSchema,
+  rootValue: any
+) => g.ExecutionResult;
+
 function parse(source: string): g.DocumentNode {
   return g.parse(source);
 }
@@ -20,7 +25,7 @@ const invokeDefaultFieldResolverBuilder = template.expression(`
 `);
 
 const invokeFieldResolverBuilder = template.expression(`
-  schema.getType(%%typeName%%).toConfig().fields.%%fieldName%%.resolve(%%source%%)
+  schema.getType(%%typeName%%).toConfig().fields.%%fieldName%%.resolve(%%source%%, %%args%%)
 `);
 
 const invokeObjectTypeFieldResolverBuilder = template.expression(`
@@ -87,6 +92,9 @@ function transformOperations(
           currentSelectionSet = null;
         },
       },
+      Argument(argNode) {
+        return false;
+      },
       Field: {
         enter(fieldNode) {
           const type = typeInfo.getType();
@@ -106,6 +114,45 @@ function transformOperations(
           const source = sourceStack[sourceStack.length - 1];
           invariant(source, "Expected a source identifier on the stack");
 
+          const argumentProperties: t.ObjectProperty[] = [];
+          if (fieldNode.arguments) {
+            fieldNode.arguments.forEach((arg) => {
+              let valueExpression: t.Expression;
+              switch (arg.value.kind) {
+                case "StringValue":
+                case "EnumValue":
+                  valueExpression = t.stringLiteral(arg.value.value);
+                  break;
+                case "IntValue":
+                  valueExpression = t.numericLiteral(
+                    parseInt(arg.value.value, 10)
+                  );
+                  break;
+                case "FloatValue":
+                  valueExpression = t.numericLiteral(
+                    parseFloat(arg.value.value)
+                  );
+                  break;
+                case "BooleanValue":
+                  valueExpression = t.booleanLiteral(arg.value.value);
+                  break;
+                case "NullValue":
+                  valueExpression = t.nullLiteral();
+                  break;
+                case "Variable":
+                case "ListValue":
+                case "ObjectValue":
+                default:
+                  throw new Error(
+                    `TODO: Unsupported arg type ${arg.value.kind}`
+                  );
+              }
+              argumentProperties.push(
+                t.objectProperty(t.identifier(arg.name.value), valueExpression)
+              );
+            });
+          }
+
           if (g.isScalarType(type)) {
             invariant(
               g.isObjectType(parentType),
@@ -117,6 +164,7 @@ function transformOperations(
             if (fieldConfig.resolve) {
               expression = invokeFieldResolverBuilder({
                 source,
+                args: t.objectExpression(argumentProperties),
                 typeName: t.stringLiteral(parentType.name),
                 fieldName: t.identifier(fieldNode.name.value),
               });
@@ -144,6 +192,7 @@ function transformOperations(
             if (fieldConfig.resolve) {
               invokeObjectFieldResolver = invokeFieldResolverBuilder({
                 source: sourceStack[sourceStack.length - 1],
+                args: t.objectExpression(argumentProperties),
                 typeName: t.stringLiteral(parentType.name),
                 fieldName: t.identifier(fieldNode.name.value),
               });
