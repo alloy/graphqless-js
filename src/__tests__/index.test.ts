@@ -9,6 +9,7 @@ import {
   GraphQLInt,
   GraphQLBoolean,
   GraphQLEnumType,
+  GraphQLResolveInfo,
 } from "graphql";
 
 import dedent from "dedent";
@@ -98,12 +99,21 @@ const schema = new GraphQLSchema({
   }),
 });
 
-function compileAndGenerate(source: string) {
-  return generate(compile(source, schema)).code;
+function compileAndGenerate(source: string, emitAST?: boolean) {
+  return generate(compile(source, schema, { emitAST: !!emitAST })).code;
 }
 
-async function graphQLExecutionResult(source: string, rootValue?: object) {
-  const src = compileAndGenerate(source);
+async function graphQLExecutionResult(
+  {
+    source,
+    rootValue,
+  }: {
+    source: string;
+    rootValue?: object;
+  },
+  options?: { emitAST?: boolean }
+) {
+  const src = compileAndGenerate(source, options && options.emitAST);
   const compiledFn = eval(src) as CompiledQueryFunction;
   const expected = await graphql({ schema, source, rootValue });
   const actual = compiledFn(schema, rootValue);
@@ -114,7 +124,10 @@ async function expectToEqualGraphQLExecutionResult(
   source: string,
   rootValue?: object
 ) {
-  const { expected, actual } = await graphQLExecutionResult(source, rootValue);
+  const { expected, actual } = await graphQLExecutionResult({
+    source,
+    rootValue,
+  });
   expect(expected).toEqual(actual);
 }
 
@@ -130,8 +143,11 @@ describe(compile, () => {
           aFieldWithResolverThatTakesArguments
         }
       `;
-      const { actual } = await graphQLExecutionResult(query, {
-        someSource: "value",
+      const { actual } = await graphQLExecutionResult({
+        source: query,
+        rootValue: {
+          someSource: "value",
+        },
       });
       const { source } = JSON.parse(
         actual.data!.aFieldWithResolverThatTakesArguments
@@ -166,13 +182,13 @@ describe(compile, () => {
               nullArg: null,
               enumArgWithValue: "ENUM_ENTRY_WITH_VALUE",
               enumArgWithoutValue: "ENUM_ENTRY_WITHOUT_VALUE"
-            })
+            }, undefined, {})
           }
         };
         });
       `);
 
-      const { actual } = await graphQLExecutionResult(query);
+      const { actual } = await graphQLExecutionResult({ source: query });
       const { args } = JSON.parse(
         actual.data!.aFieldWithResolverThatTakesArguments
       );
@@ -188,6 +204,27 @@ describe(compile, () => {
     });
 
     it.todo("receives variable args");
+
+    it("receives info AST", async () => {
+      const query = `
+        query SomeQuery {
+          aFieldWithResolverThatTakesArguments(stringArg: "hello world")
+        }
+      `;
+      const { actual, expected } = await graphQLExecutionResult(
+        {
+          source: query,
+        },
+        { emitAST: true }
+      );
+      const { info: actualInfo }: { info: GraphQLResolveInfo } = JSON.parse(
+        actual.data!.aFieldWithResolverThatTakesArguments
+      );
+      const { info: expectedInfo }: { info: GraphQLResolveInfo } = JSON.parse(
+        expected.data!.aFieldWithResolverThatTakesArguments
+      );
+      expect(actualInfo.fieldNodes).toEqual(expectedInfo.fieldNodes);
+    });
   });
 
   describe("concerning scalar fields", () => {
@@ -202,7 +239,7 @@ describe(compile, () => {
         (function SomeQuery(schema, rootValue) {
         return {
           data: {
-            aScalarRootField: schema.getType("Query").toConfig().fields.aScalarRootField.resolve(rootValue, {})
+            aScalarRootField: schema.getType("Query").toConfig().fields.aScalarRootField.resolve(rootValue, {}, undefined, {})
           }
         };
         });
@@ -249,11 +286,11 @@ describe(compile, () => {
         return {
           data: {
             anObjectRootField: function () {
-              const result_1 = schema.getType("Query").toConfig().fields.anObjectRootField.resolve(rootValue, {});
+              const result_1 = schema.getType("Query").toConfig().fields.anObjectRootField.resolve(rootValue, {}, undefined);
   
               if (result_1) {
                 return Object.assign({}, result_1, {
-                  aNestedScalarField: schema.getType("AnObjectRootFieldType").toConfig().fields.aNestedScalarField.resolve(result_1, {})
+                  aNestedScalarField: schema.getType("AnObjectRootFieldType").toConfig().fields.aNestedScalarField.resolve(result_1, {}, undefined, {})
                 });
               }
             }()
@@ -282,7 +319,7 @@ describe(compile, () => {
       return {
         data: {
           anObjectRootField: function () {
-            const result_1 = schema.getType("Query").toConfig().fields.anObjectRootField.resolve(rootValue, {});
+            const result_1 = schema.getType("Query").toConfig().fields.anObjectRootField.resolve(rootValue, {}, undefined);
 
             if (result_1) {
               return Object.assign({}, result_1, {
