@@ -29,7 +29,7 @@ const invokeFieldResolverBuilder = template.expression(`
   schema.getType(%%typeName%%).toConfig().fields.%%fieldName%%.resolve(%%source%%, %%args%%, undefined, %%resolveInfo%%)
 `);
 
-const invokeObjectTypeFieldResolverBuilder = template.expression(`
+const objectTypeFieldResolverBuilder = template.expression(`
   function () {
     const %%source%% = %%invokeObjectFieldResolver%%;
     if (%%source%%) {
@@ -39,7 +39,7 @@ const invokeObjectTypeFieldResolverBuilder = template.expression(`
         %%selectionSet%%,
       );
     }
-  }()
+  }
 `);
 
 function transformOperations(
@@ -54,6 +54,10 @@ function transformOperations(
   const sourceStack: t.Identifier[] = [];
   const selectionSetStack: t.ObjectProperty[][] = [];
   let currentSelectionSet: t.ObjectExpression | null = null;
+  let markFunctionAsyncStack: boolean[] = [];
+  const markAncestorFunctionsAsync = () => {
+    markFunctionAsyncStack = markFunctionAsyncStack.map(() => true);
+  };
 
   g.visit(
     source,
@@ -65,6 +69,7 @@ function transformOperations(
             "Currently only query operations are supported"
           );
           sourceStack.push(t.identifier("rootValue"));
+          markFunctionAsyncStack.push(false);
         },
         leave(operationNode) {
           invariant(
@@ -84,13 +89,15 @@ function transformOperations(
             sourceStack.length === 1,
             "Expected sourceStack to be empty by end of operation"
           );
-          const source = sourceStack.pop()!;
-          operationFunctions.push(
-            operationFunctionBuilder({
+          sourceStack.pop();
+          const markQueryFunctionAsync = markFunctionAsyncStack.pop()!;
+          operationFunctions.push({
+            ...(operationFunctionBuilder({
               operationName: operationNode.name.value,
               selectionSet: currentSelectionSet,
-            }) as t.FunctionExpression
-          );
+            }) as t.FunctionExpression),
+            async: markQueryFunctionAsync,
+          });
           currentSelectionSet = null;
         },
       },
@@ -103,6 +110,7 @@ function transformOperations(
           invariant(type, "Expected field to have a type");
           // TODO: Check what this _is_ instead of what it isn't
           if (!g.isScalarType(type)) {
+            markFunctionAsyncStack.push(false);
             sourceStack.push(t.identifier(`result_${sourceStack.length}`));
           }
         },
@@ -188,6 +196,13 @@ function transformOperations(
                       ]
                 ),
               });
+
+              // TODO Optionally handle Promise return results when not an AsyncFunction
+              const resolver = typeInfo.getFieldDef().resolve;
+              if (resolver && resolver.constructor.name === "AsyncFunction") {
+                markAncestorFunctionsAsync();
+                expression = t.awaitExpression(expression);
+              }
             } else {
               expression = invokeDefaultFieldResolverBuilder({
                 source,
@@ -223,11 +238,28 @@ function transformOperations(
                 fieldName: t.stringLiteral(fieldNode.name.value),
               });
             }
-            expression = invokeObjectTypeFieldResolverBuilder({
+
+            // Create resolver function
+            expression = objectTypeFieldResolverBuilder({
               source,
               invokeObjectFieldResolver,
               selectionSet: currentSelectionSet,
             });
+            const markAsync = markFunctionAsyncStack.pop();
+            if (markAsync) {
+              // Mark it async, if necessary
+              expression = {
+                ...(expression as t.FunctionExpression),
+                async: true,
+              };
+            }
+            // Invoke
+            expression = t.callExpression(expression, []);
+            if (markAsync) {
+              // Await it, if it was async
+              expression = t.awaitExpression(expression);
+            }
+
             currentSelectionSet = null;
           }
           selectionSetStack[selectionSetStack.length - 1].push(

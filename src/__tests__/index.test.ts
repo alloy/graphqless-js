@@ -87,6 +87,10 @@ const schema = new GraphQLSchema({
                   aScalarFieldWithoutResolver: {
                     type: GraphQLString,
                   },
+                  anAsyncField: {
+                    type: GraphQLString,
+                    resolve: async (source) => source.anAsyncField,
+                  },
                 }),
               }),
             },
@@ -103,6 +107,15 @@ function compileAndGenerate(source: string, emitAST?: boolean) {
   return generate(compile(source, schema, { emitAST: !!emitAST })).code;
 }
 
+function instantiateCompiledFunction(source: string) {
+  return eval(source) as CompiledQueryFunction;
+}
+
+function compileQueryFunction(source: string, options?: { emitAST?: boolean }) {
+  const src = compileAndGenerate(source, options && options.emitAST);
+  return instantiateCompiledFunction(src);
+}
+
 async function graphQLExecutionResult(
   {
     source,
@@ -113,10 +126,9 @@ async function graphQLExecutionResult(
   },
   options?: { emitAST?: boolean }
 ) {
-  const src = compileAndGenerate(source, options && options.emitAST);
-  const compiledFn = eval(src) as CompiledQueryFunction;
+  const compiledFn = compileQueryFunction(source, options);
   const expected = await graphql({ schema, source, rootValue });
-  const actual = compiledFn(schema, rootValue);
+  const actual = await compiledFn(schema, rootValue);
   return { expected, actual };
 }
 
@@ -300,6 +312,66 @@ describe(compile, () => {
       `);
 
       await expectToEqualGraphQLExecutionResult(query);
+    });
+
+    it("marks the function as sync when no promise is returned", async () => {
+      const compiledFn = compileQueryFunction(`
+        query SomeQuery {
+          anObjectRootField {
+            aNestedObjectFieldWithoutResolver {
+              aScalarFieldWithoutResolver
+            }
+          }
+        }
+      `);
+      expect(compiledFn.constructor.name).toEqual("Function");
+    });
+
+    it("marks the function and parents as async when any promise is returned", async () => {
+      const query = `
+        query SomeQuery {
+          anObjectRootField {
+            aNestedObjectFieldWithoutResolver {
+              anAsyncField
+            }
+          }
+        }
+      `;
+
+      const compiledFn = compileAndGenerate(query);
+      expect(dedent(compiledFn)).toEqual(dedent`
+        (async function SomeQuery(schema, rootValue) {
+        return {
+          data: {
+            anObjectRootField: await async function () {
+              const result_1 = schema.getType("Query").toConfig().fields.anObjectRootField.resolve(rootValue, {}, undefined);
+      
+              if (result_1) {
+                return Object.assign({}, result_1, {
+                  aNestedObjectFieldWithoutResolver: await async function () {
+                    const result_2 = result_1["aNestedObjectFieldWithoutResolver"];
+      
+                    if (result_2) {
+                      return Object.assign({}, result_2, {
+                        anAsyncField: await schema.getType("ANestedObjectFieldType").toConfig().fields.anAsyncField.resolve(result_2, {}, undefined, {})
+                      });
+                    }
+                  }()
+                });
+              }
+            }()
+          }
+        };
+        });
+      `);
+
+      await expectToEqualGraphQLExecutionResult(query, {
+        anObjectRootField: {
+          aNestedObjectFieldWithoutResolver: {
+            anAsyncField: Promise.resolve("hello world"),
+          },
+        },
+      });
     });
   });
 
