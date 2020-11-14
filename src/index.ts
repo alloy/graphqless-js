@@ -166,6 +166,8 @@ function transformOperations(
   let currentSelectionSet: t.ObjectExpression | null = null
   let markFunctionAsyncStack: boolean[] = []
   const markAncestorFunctionsAsync = () => {
+    // Mark all entries in the stack as needing to be async,
+    // newly added functions to the stack will remain sync by default
     markFunctionAsyncStack = markFunctionAsyncStack.map(() => true)
   }
 
@@ -219,36 +221,7 @@ function transformOperations(
           const source = sourceStack[sourceStack.length - 1]
           invariant(source, "Expected a source identifier on the stack")
 
-          const argumentProperties: t.ObjectProperty[] = []
-          if (fieldNode.arguments) {
-            fieldNode.arguments.forEach((arg) => {
-              let valueExpression: t.Expression
-              switch (arg.value.kind) {
-                case "StringValue":
-                case "EnumValue":
-                  valueExpression = t.stringLiteral(arg.value.value)
-                  break
-                case "IntValue":
-                  valueExpression = t.numericLiteral(parseInt(arg.value.value, 10))
-                  break
-                case "FloatValue":
-                  valueExpression = t.numericLiteral(parseFloat(arg.value.value))
-                  break
-                case "BooleanValue":
-                  valueExpression = t.booleanLiteral(arg.value.value)
-                  break
-                case "NullValue":
-                  valueExpression = t.nullLiteral()
-                  break
-                case "Variable":
-                case "ListValue":
-                case "ObjectValue":
-                default:
-                  throw new Error(`TODO: Unsupported arg type ${arg.value.kind}`)
-              }
-              argumentProperties.push(t.objectProperty(t.identifier(arg.name.value), valueExpression))
-            })
-          }
+          const argumentProperties: t.ObjectProperty[] = compileArguments(fieldNode)
 
           if (g.isScalarType(type)) {
             const [resolverExpression, hasAsyncResolver] = compileScalarTypeResolver({
@@ -298,6 +271,40 @@ function transformOperations(
   )
 
   return operationFunctions
+}
+
+function compileArguments(fieldNode: g.FieldNode) {
+  const argumentProperties: t.ObjectProperty[] = []
+  if (fieldNode.arguments) {
+    fieldNode.arguments.forEach((arg) => {
+      let valueExpression: t.Expression
+      switch (arg.value.kind) {
+        case "StringValue":
+        case "EnumValue":
+          valueExpression = t.stringLiteral(arg.value.value)
+          break
+        case "IntValue":
+          valueExpression = t.numericLiteral(parseInt(arg.value.value, 10))
+          break
+        case "FloatValue":
+          valueExpression = t.numericLiteral(parseFloat(arg.value.value))
+          break
+        case "BooleanValue":
+          valueExpression = t.booleanLiteral(arg.value.value)
+          break
+        case "NullValue":
+          valueExpression = t.nullLiteral()
+          break
+        case "Variable":
+        case "ListValue":
+        case "ObjectValue":
+        default:
+          throw new Error(`TODO: Unsupported arg type ${arg.value.kind}`)
+      }
+      argumentProperties.push(t.objectProperty(t.identifier(arg.name.value), valueExpression))
+    })
+  }
+  return argumentProperties
 }
 
 export function compile(source: string, schema: g.GraphQLSchema, options?: { emitAST?: boolean }): t.Node {
