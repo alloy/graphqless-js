@@ -26,7 +26,10 @@ query SomeQuery {
   return {
     data: {
       anObjectRootField: (function () {
-        const result_1 = schema.getType("Query").toConfig().fields.anObjectRootField.resolve(rootValue, {}, undefined)
+        const result_1 = schema
+          .getType("Query")
+          .toConfig()
+          .fields.anObjectRootField.resolve(rootValue, {}, undefined)
 
         if (result_1) {
           return Object.assign({}, result_1, {

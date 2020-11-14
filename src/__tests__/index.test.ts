@@ -96,7 +96,8 @@ const schema = new GraphQLSchema({
             },
           }),
         }),
-        resolve: (source, args, context, info) => (source ? source.anObjectRootField : {}),
+        resolve: (source, args, context, info) =>
+          source ? source.anObjectRootField : {},
       },
     }),
   }),
@@ -131,7 +132,10 @@ async function graphQLExecutionResult(
   return { expected, actual }
 }
 
-async function expectToEqualGraphQLExecutionResult(source: string, rootValue?: object) {
+async function expectToEqualGraphQLExecutionResult(
+  source: string,
+  rootValue?: object
+) {
   const { expected, actual } = await graphQLExecutionResult({
     source,
     rootValue,
@@ -157,7 +161,9 @@ describe(compile, () => {
           someSource: "value",
         },
       })
-      const { source } = JSON.parse(actual.data!.aFieldWithResolverThatTakesArguments)
+      const { source } = JSON.parse(
+        actual.data!.aFieldWithResolverThatTakesArguments
+      )
       expect(source).toEqual({ someSource: "value" })
     })
 
@@ -195,7 +201,9 @@ describe(compile, () => {
       `)
 
       const { actual } = await graphQLExecutionResult({ source: query })
-      const { args } = JSON.parse(actual.data!.aFieldWithResolverThatTakesArguments)
+      const { args } = JSON.parse(
+        actual.data!.aFieldWithResolverThatTakesArguments
+      )
       expect(args).toEqual({
         stringArg: "hello world",
         intArg: 42,

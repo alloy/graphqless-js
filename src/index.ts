@@ -4,7 +4,10 @@ import * as g from "graphql"
 import invariant from "invariant"
 import { parse as parseJS } from "@babel/parser"
 
-export type CompiledQueryFunction = (schema: g.GraphQLSchema, rootValue: any) => g.ExecutionResult
+export type CompiledQueryFunction = (
+  schema: g.GraphQLSchema,
+  rootValue: any
+) => g.ExecutionResult
 
 function parse(source: string): g.DocumentNode {
   return g.parse(source)
@@ -53,7 +56,10 @@ function compileScalarTypeResolver({
   emitAST: boolean
 }): [t.Expression, boolean] {
   const parentType = typeInfo.getParentType()
-  invariant(g.isObjectType(parentType), "Expected parentType to be an object type")
+  invariant(
+    g.isObjectType(parentType),
+    "Expected parentType to be an object type"
+  )
   let expression: t.Expression
   let hasAsyncResolver: boolean = false
   const fieldConfig = parentType.toConfig().fields[fieldNode.name.value]
@@ -62,7 +68,8 @@ function compileScalarTypeResolver({
     // TODO: Merge multiple field selections
     let fieldNodes: t.ExpressionStatement | null = null
     if (emitAST) {
-      fieldNodes = parseJS(JSON.stringify([fieldNode])).program.body[0] as t.ExpressionStatement
+      fieldNodes = parseJS(JSON.stringify([fieldNode])).program
+        .body[0] as t.ExpressionStatement
     }
 
     expression = invokeFieldResolverBuilder({
@@ -71,7 +78,14 @@ function compileScalarTypeResolver({
       typeName: t.stringLiteral(parentType.name),
       fieldName: t.identifier(fieldNode.name.value),
       resolveInfo: t.objectExpression(
-        fieldNodes === null ? [] : [t.objectProperty(t.identifier("fieldNodes"), fieldNodes.expression)]
+        fieldNodes === null
+          ? []
+          : [
+              t.objectProperty(
+                t.identifier("fieldNodes"),
+                fieldNodes.expression
+              ),
+            ]
       ),
     })
 
@@ -108,10 +122,16 @@ function compileObjectTypeResolver({
   markAsync: boolean
 }): t.Expression {
   const parentType = typeInfo.getParentType()
-  invariant(g.isObjectType(parentType), "Expected parentType to be an object type")
+  invariant(
+    g.isObjectType(parentType),
+    "Expected parentType to be an object type"
+  )
   // invariant(g.isObjectType(type), "Expected a object type");
   let invokeObjectFieldResolver: t.Expression
-  invariant(g.isObjectType(parentType), "Expected parentType to be an object type")
+  invariant(
+    g.isObjectType(parentType),
+    "Expected parentType to be an object type"
+  )
   const fieldConfig = parentType.toConfig().fields[fieldNode.name.value]
   if (fieldConfig.resolve) {
     invokeObjectFieldResolver = invokeFieldResolverBuilder({
@@ -176,16 +196,31 @@ function transformOperations(
     g.visitWithTypeInfo(typeInfo, {
       OperationDefinition: {
         enter(operationNode) {
-          invariant(operationNode.operation === "query", "Currently only query operations are supported")
+          invariant(
+            operationNode.operation === "query",
+            "Currently only query operations are supported"
+          )
           sourceStack.push(t.identifier("rootValue"))
           markFunctionAsyncStack.push(false)
         },
         leave(operationNode) {
-          invariant(selectionSetStack.length === 0, "Expected selectionSetStack to be empty by end of operation")
-          invariant(currentSelectionSet, "Expected there to be a current selection for root object type")
+          invariant(
+            selectionSetStack.length === 0,
+            "Expected selectionSetStack to be empty by end of operation"
+          )
+          invariant(
+            currentSelectionSet,
+            "Expected there to be a current selection for root object type"
+          )
           // TODO: Make this a graphql-js validation
-          invariant(operationNode.name, "Expected operation to have a name to be used as name of the compiled function")
-          invariant(sourceStack.length === 1, "Expected sourceStack to be empty by end of operation")
+          invariant(
+            operationNode.name,
+            "Expected operation to have a name to be used as name of the compiled function"
+          )
+          invariant(
+            sourceStack.length === 1,
+            "Expected sourceStack to be empty by end of operation"
+          )
           sourceStack.pop()
           const markQueryFunctionAsync = markFunctionAsyncStack.pop()!
           operationFunctions.push({
@@ -221,10 +256,15 @@ function transformOperations(
           const source = sourceStack[sourceStack.length - 1]
           invariant(source, "Expected a source identifier on the stack")
 
-          const argumentProperties: t.ObjectProperty[] = compileArguments(fieldNode)
+          const argumentProperties: t.ObjectProperty[] = compileArguments(
+            fieldNode
+          )
 
           if (g.isScalarType(type)) {
-            const [resolverExpression, hasAsyncResolver] = compileScalarTypeResolver({
+            const [
+              resolverExpression,
+              hasAsyncResolver,
+            ] = compileScalarTypeResolver({
               typeInfo,
               fieldNode,
               argumentProperties,
@@ -238,7 +278,10 @@ function transformOperations(
           } else {
             sourceStack.pop()
             const parentSource = sourceStack[sourceStack.length - 1]
-            invariant(currentSelectionSet, "Expected there to be a current selection for object type")
+            invariant(
+              currentSelectionSet,
+              "Expected there to be a current selection for object type"
+            )
             const selectionSet = currentSelectionSet
             currentSelectionSet = null
             const markAsync = !!markFunctionAsyncStack.pop()
@@ -301,15 +344,26 @@ function compileArguments(fieldNode: g.FieldNode) {
         default:
           throw new Error(`TODO: Unsupported arg type ${arg.value.kind}`)
       }
-      argumentProperties.push(t.objectProperty(t.identifier(arg.name.value), valueExpression))
+      argumentProperties.push(
+        t.objectProperty(t.identifier(arg.name.value), valueExpression)
+      )
     })
   }
   return argumentProperties
 }
 
-export function compile(source: string, schema: g.GraphQLSchema, options?: { emitAST?: boolean }): t.Node {
-  const emitAST = options && options.emitAST !== undefined ? options.emitAST : true
-  const functionExpressions = transformOperations(parse(source), schema, emitAST)
+export function compile(
+  source: string,
+  schema: g.GraphQLSchema,
+  options?: { emitAST?: boolean }
+): t.Node {
+  const emitAST =
+    options && options.emitAST !== undefined ? options.emitAST : true
+  const functionExpressions = transformOperations(
+    parse(source),
+    schema,
+    emitAST
+  )
   const body = functionExpressions.map((fn) => t.expressionStatement(fn))
   return t.program(body)
 }
