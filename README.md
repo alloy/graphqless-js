@@ -2,7 +2,7 @@
 
 Statically compiled resolvers for entire queries based on a graphql-js schema. That is, for a operation document and an
 executable schema, the graphqless compiler will output JavaScript code that is able to execute that operation _without_
-any GraphQL runtime execution such as parsing, validating, and figuring out what resolvers to invoke.
+any GraphQL runtime execution overhead such as parsing, validating, and figuring out what resolvers to invoke.
 
 ## Example
 
